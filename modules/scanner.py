@@ -1,7 +1,9 @@
 import time
 import pandas as pd
 from pywifi import PyWiFi, const
-# from modules.scorer import rate_network
+import scorer
+import os
+
 
 def scan_networks():
     wifi = PyWiFi()
@@ -18,7 +20,7 @@ def scan_networks():
         encryption = "Open"
 
         if network.akm:
-            if const.AKM_TYPE_WPA3PSK in network.akm:
+            if hasattr(const, "AKM_TYPE_WPA3PSK") and const.AKM_TYPE_WPA3PSK in network.akm:
                 encryption = "WPA3"
             elif const.AKM_TYPE_WPA2PSK in network.akm:
                 encryption = "WPA2"
@@ -38,9 +40,9 @@ def scan_networks():
 
 def run_scan():
     df = scan_networks()
-    df["Rating"] = df.apply(lambda row: rate_network(row["SignalStrength"], row["Encryption"]), axis=1)
-    df.to_csv("data/field_scan.csv", index=False)
+    df = scorer.score_networks(df)
+    df.to_csv("../data/field_scan.csv", index=False)
     print(df)
 
-if __name__ == "__main__":
+if name == "main":
     run_scan()
