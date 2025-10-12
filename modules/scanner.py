@@ -44,5 +44,5 @@ def run_scan():
     df.to_csv("../data/field_scan.csv", index=False)
     print(df)
 
-if name == "main":
+if __name__ == "__main__":
     run_scan()
