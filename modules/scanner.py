@@ -5,7 +5,7 @@ import os
 import requests
 import traceback
 import subprocess, re
-import math
+import  datetime
 _vendor_cache = {}
 
 def is_SSID_Hidden(ssid):
@@ -181,7 +181,12 @@ def scan_networks():
 def run_scan():
     try:
         df = scan_networks()
-        output_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../data/field_scan.csv"))
+        project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+        data_dir = os.path.join(project_root, "data")
+        os.makedirs(data_dir, exist_ok=True)
+
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        output_path = os.path.join(data_dir, f"scan_{timestamp}.csv")        
         df.to_csv(output_path, index=False)
         print(df.to_string(index=False))
 
