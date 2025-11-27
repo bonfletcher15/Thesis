@@ -1,15 +1,12 @@
 import time
 import pandas as pd
 from pywifi import PyWiFi, const
-import scorer
 import os
 import requests
 import traceback
 import subprocess, re
 import math
 _vendor_cache = {}
-
-
 
 def is_SSID_Hidden(ssid):
     if not ssid or ssid.strip() == "":
@@ -148,7 +145,6 @@ def scan_networks():
 
     system_iface = get_system_iface_name()
     iw_info = parse_iw_scan(system_iface) if system_iface else {}
-    rows = []
 
     networks = []
     for network in results:
@@ -192,12 +188,6 @@ def run_scan():
     except Exception as e:
         print("Scan failed:", e)
         traceback.print_exc()
-
-    # Scorer
-    # df = scorer.score_networks(df)
-    # output_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../data/field_scan.csv"))
-    # df.to_csv(output_path, index=False)
-    # print(df.to_string(index=False))
 
 if __name__ == "__main__":
     run_scan()
