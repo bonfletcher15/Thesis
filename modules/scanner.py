@@ -123,6 +123,33 @@ def estimate_distance_meters(rssi_dbm, freq_mhz, rssi_at_1m=-40.0, path_loss_exp
     d_m = 10 ** exponent
     return max(0.5, min(int(round(d_m)), 10000))
 
+def detect_anomalies(df):
+    anomalies = []
+
+    df_visible = df[df["SSID"] != "Hidden SSID"]
+    duplicate_ssids = df_visible[df_visible.duplicated("SSID", keep=False)]
+    if not duplicate_ssids.empty:
+        anomalies.append({
+            "type": "Evil Twin",
+            "details": duplicate_ssids
+        })
+
+    open_nets = df[df["Encryption"].str.upper() == "OPEN"]
+    if not open_nets.empty:
+        anomalies.append({
+            "type": "Unencrypted Networks",
+            "details": open_nets
+        })
+
+    weak = df[df["Encryption"].str.contains("WEP|WPA$", case=False, regex=True)]
+    if not weak.empty:
+        anomalies.append({
+            "type": "Weak Encryption",
+            "details": weak
+        })
+
+    return anomalies
+
 def scan_networks():
     wifi = PyWiFi()
     interfaces = wifi.interfaces()
@@ -171,7 +198,7 @@ def run_scan():
         if df.empty:
             print("No networks found.")
             return
-
+        
         project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
         data_dir = os.path.join(project_root, "data")
         os.makedirs(data_dir, exist_ok=True)

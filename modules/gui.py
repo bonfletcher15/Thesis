@@ -5,10 +5,12 @@ from datetime import datetime
 import tkinter as tk
 from tkinter import ttk, messagebox
 import traceback
+import sys
+import subprocess
 
 import pandas as pd
 
-from scanner import scan_networks
+from scanner import scan_networks, detect_anomalies
 
 class WiFiScannerGUI:
 
@@ -54,12 +56,14 @@ class WiFiScannerGUI:
         self.scan_thread = threading.Thread(target=self.scan_loop, args=(interval,), daemon=False)
         self.scan_thread.start()
         
-
     def scan_loop(self, interval):
         while self.scanning:
             try:
                 df = scan_networks()
-                self.save_scan(df)
+                path = self.save_scan(df)
+                anomalies = detect_anomalies(df)
+                if anomalies:
+                    self.root.after(0, lambda: self.show_anomaly_popup(anomalies, path))
             except PermissionError:
                 messagebox.showerror(
                 "Permission Denied",
@@ -88,6 +92,8 @@ class WiFiScannerGUI:
         df.to_csv(path, index=False)
         print(f"Saved scan → {path}")
 
+        return path
+
     def open_stop_window(self):
         self.stop_window = tk.Toplevel(self.root)
         self.stop_window.title("Stop")
@@ -106,6 +112,32 @@ class WiFiScannerGUI:
         if not from_close:
             self.root.deiconify()
             messagebox.showinfo("Stopped", "Scanning stopped.")
+
+    def show_anomaly_popup(self, anomalies, file_path):
+        win = tk.Toplevel(self.root)
+        win.title("Threat Alert")
+        win.geometry("350x240")
+        win.resizable(False, False)
+
+        msg = "Anomalies detected:\n\n"
+        for a in anomalies:
+            msg += f"• {a['type']}\n"
+
+        tk.Label(win, text=msg, justify="left").pack(pady=10)
+
+        def open_file():
+            try:
+                if sys.platform.startswith("linux"):
+                    subprocess.call(["xdg-open", file_path])
+                elif sys.platform == "darwin":
+                    subprocess.call(["open", file_path])
+                else:
+                    os.startfile(file_path)
+            except Exception as e:
+                messagebox.showerror("Error", str(e))
+
+        tk.Button(win, text="Open File", command=open_file).pack(side="left", padx=20, pady=20)
+        tk.Button(win, text="Close", command=win.destroy).pack(side="right", padx=20, pady=20)
 
 if __name__ == "__main__":
     root = tk.Tk()
