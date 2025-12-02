@@ -14,7 +14,7 @@ class WiFiScannerGUI:
 
     def __init__(self, root):
         self.root = root
-        self.root.title("WiFi Scanner")
+        self.root.title("Scannix")
         self.root.geometry("320x150")
         self.root.resizable(False, False)
 
@@ -94,6 +94,7 @@ class WiFiScannerGUI:
         self.stop_window.geometry("120x70")
         self.stop_window.resizable(False, False)
         self.stop_window.attributes("-topmost", True)
+        self.stop_window.protocol("WM_DELETE_WINDOW", self.stop_scanning)
 
         ttk.Button(self.stop_window, text="Stop", command=self.stop_scanning).pack(expand=True)
 
