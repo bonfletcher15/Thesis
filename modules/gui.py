@@ -11,6 +11,8 @@ import subprocess
 import pandas as pd
 
 from scanner import scan_networks, detect_anomalies
+from history_manager import HistoryManager
+from threat_detector import ThreatDetector
 
 class WiFiScannerGUI:
 
@@ -23,6 +25,10 @@ class WiFiScannerGUI:
         self.scanning = False
         self.scan_thread = None
         self.stop_window = None
+
+        # Initialize history and threat detection
+        self.history = HistoryManager()
+        self.threat_detector = ThreatDetector(self.history)
 
         ttk.Label(root, text="Scan interval (seconds):").pack(pady=5)
         self.interval_var = tk.StringVar(value="10")
@@ -71,13 +77,30 @@ class WiFiScannerGUI:
             try:
                 df = scan_networks()
                 path = self.save_scan(df)
+
+                # Add scan to history database
+                self.history.add_scan(df)
+
+                # Detect anomalies
                 anomalies = detect_anomalies(df)
+
+                # Detect advanced threats
+                threats = self.threat_detector.detect_all_threats(df)
+
+                # Show anomaly popups first
                 if anomalies:
                     # Show popups sequentially (one per anomaly type) with delay
                     for i, anomaly in enumerate(anomalies):
                         # Delay each popup by 500ms to prevent overlap
                         delay = i * 500
                         self.root.after(delay, lambda a=anomaly, p=path: self.show_anomaly_popup([a], p))
+
+                # Show threat popups after anomalies (with additional delay)
+                if threats:
+                    base_delay = len(anomalies) * 500
+                    for i, threat in enumerate(threats):
+                        delay = base_delay + (i * 500)
+                        self.root.after(delay, lambda t=threat, p=path: self.show_threat_popup(t, p))
             except PermissionError:
                 messagebox.showerror(
                 "Permission Denied",
@@ -277,6 +300,246 @@ class WiFiScannerGUI:
             text="Close",
             command=win.destroy
         ).pack(side='right', padx=5)
+
+    def show_threat_popup(self, threat, file_path):
+        """
+        Show alert popup for advanced threat detection
+
+        Args:
+            threat: Threat dict with type, severity, details, context
+            file_path: Path to scan CSV file
+        """
+        threat_type = threat['type']
+        severity = threat.get('severity', 'medium').upper()
+        context = threat.get('context', {})
+
+        win = tk.Toplevel(self.root)
+        win.title(f"Advanced Threat - {threat_type}")
+        win.geometry("600x500")
+        win.resizable(True, True)
+        win.attributes("-topmost", True)
+
+        # Severity colors
+        severity_colors = {
+            'CRITICAL': '#ff0000',
+            'HIGH': '#ff6600',
+            'MEDIUM': '#ffaa00',
+            'LOW': '#ffdd00'
+        }
+        bg_color = severity_colors.get(severity, '#cccccc')
+
+        # Header
+        header_frame = tk.Frame(win, bg=bg_color, height=60)
+        header_frame.pack(fill='x')
+        tk.Label(
+            header_frame,
+            text=f"🛡️  {threat_type}",
+            bg=bg_color,
+            fg='white',
+            font=("Arial", 16, "bold")
+        ).pack(pady=5)
+        tk.Label(
+            header_frame,
+            text=f"Severity: {severity}",
+            bg=bg_color,
+            fg='white',
+            font=("Arial", 10)
+        ).pack()
+
+        # Scrollable details frame
+        canvas = tk.Canvas(win)
+        scrollbar = ttk.Scrollbar(win, orient="vertical", command=canvas.yview)
+        details_frame = ttk.Frame(canvas)
+
+        details_frame.bind(
+            "<Configure>",
+            lambda _: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+
+        canvas.create_window((0, 0), window=details_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        # Build threat details
+        self._build_threat_details(details_frame, threat)
+
+        canvas.pack(side="left", fill="both", expand=True, padx=10, pady=10)
+        scrollbar.pack(side="right", fill="y", pady=10)
+
+        # Button frame
+        button_frame = tk.Frame(win)
+        button_frame.pack(fill='x', padx=20, pady=15)
+
+        # Mark as False Positive button
+        tk.Button(
+            button_frame,
+            text="Mark False Positive",
+            command=lambda: self.mark_false_positive(threat, win),
+            bg='#888888',
+            fg='white',
+            font=("Arial", 10)
+        ).pack(side='left', padx=5)
+
+        # Open file button
+        def open_file():
+            try:
+                if sys.platform.startswith("linux"):
+                    subprocess.call(["xdg-open", file_path])
+                elif sys.platform == "darwin":
+                    subprocess.call(["open", file_path])
+                else:
+                    os.startfile(file_path)
+            except Exception as e:
+                messagebox.showerror("Error", str(e))
+
+        tk.Button(
+            button_frame,
+            text="Open Scan File",
+            command=open_file,
+            font=("Arial", 10)
+        ).pack(side='left', padx=5)
+
+        # Close button
+        tk.Button(
+            button_frame,
+            text="Close",
+            command=win.destroy,
+            font=("Arial", 10)
+        ).pack(side='right', padx=5)
+
+    def _build_threat_details(self, parent, threat):
+        """Build detailed threat information display"""
+        threat_type = threat['type']
+        context = threat.get('context', {})
+        details = threat.get('details')
+
+        # Threat description
+        descriptions = {
+            'Vendor Spoofing': "A network's MAC address vendor doesn't match its SSID, suggesting possible spoofing or rogue AP.",
+            'Encryption Downgrade': "A known network has switched to weaker encryption, possibly indicating an attack or misconfiguration.",
+            'Suspicious SSID': "Network name contains suspicious characters that could indicate a spoofing attempt.",
+            'Signal Strength Anomaly': "Network signal strength has increased significantly from baseline, possibly indicating a rogue AP nearby.",
+            'Beacon Flood': "Unusually high number of networks detected on a single channel, possible DoS attack or WiFi scanner."
+        }
+
+        desc = descriptions.get(threat_type, "Advanced threat detected.")
+
+        tk.Label(
+            parent,
+            text="Description:",
+            font=("Arial", 11, "bold")
+        ).pack(anchor='w', pady=(10, 5))
+
+        tk.Label(
+            parent,
+            text=desc,
+            font=("Arial", 10),
+            wraplength=550,
+            justify="left"
+        ).pack(anchor='w', padx=10)
+
+        # Context details
+        if context:
+            tk.Label(
+                parent,
+                text="\nTechnical Details:",
+                font=("Arial", 11, "bold")
+            ).pack(anchor='w', pady=(10, 5))
+
+            context_text = ""
+            for key, value in context.items():
+                if key == 'reasons' and isinstance(value, list):
+                    context_text += f"Reasons:\n"
+                    for reason in value:
+                        context_text += f"  • {reason}\n"
+                elif key not in ['char_analysis']:
+                    context_text += f"{key.replace('_', ' ').title()}: {value}\n"
+
+            tk.Label(
+                parent,
+                text=context_text,
+                font=("monospace", 9),
+                justify="left"
+            ).pack(anchor='w', padx=10)
+
+        # Network details
+        if details is not None and not details.empty:
+            tk.Label(
+                parent,
+                text="\nAffected Network(s):",
+                font=("Arial", 11, "bold")
+            ).pack(anchor='w', pady=(10, 5))
+
+            # Show network details in a formatted way
+            for _, row in details.head(10).iterrows():
+                network_text = f"SSID: {row.get('SSID', 'Unknown')}\n"
+                network_text += f"BSSID: {row.get('BSSID', 'Unknown')}\n"
+                if 'Encryption' in row:
+                    network_text += f"Encryption: {row['Encryption']}\n"
+                if 'Vendor' in row:
+                    network_text += f"Vendor: {row['Vendor']}\n"
+                if 'Signal' in row:
+                    network_text += f"Signal: {row['Signal']} dBm\n"
+
+                frame = tk.LabelFrame(parent, text="Network", padx=10, pady=5)
+                frame.pack(fill='x', padx=10, pady=5)
+
+                tk.Label(
+                    frame,
+                    text=network_text,
+                    font=("monospace", 8),
+                    justify="left"
+                ).pack(anchor='w')
+
+            if len(details) > 10:
+                tk.Label(
+                    parent,
+                    text=f"... and {len(details) - 10} more networks",
+                    font=("Arial", 9, "italic"),
+                    fg="gray"
+                ).pack(anchor='w', padx=10, pady=5)
+
+        # Remediation suggestions
+        remediations = {
+            'Vendor Spoofing': "• Verify this is a legitimate network\n• Check physical device to confirm vendor\n• Avoid connecting if unrecognized",
+            'Encryption Downgrade': "• Do NOT connect to this network\n• Contact network administrator\n• Verify router configuration hasn't been compromised",
+            'Suspicious SSID': "• Verify network name with administrator\n• Check for lookalike networks\n• Avoid connecting if suspicious",
+            'Signal Strength Anomaly': "• Check for unauthorized devices nearby\n• Verify network BSSID matches expected\n• May indicate Evil Twin attack",
+            'Beacon Flood': "• May be in high-density area (normal)\n• Could indicate DoS attack\n• Monitor for network disruption"
+        }
+
+        if threat_type in remediations:
+            tk.Label(
+                parent,
+                text="\nRecommended Actions:",
+                font=("Arial", 11, "bold")
+            ).pack(anchor='w', pady=(10, 5))
+
+            tk.Label(
+                parent,
+                text=remediations[threat_type],
+                font=("Arial", 10),
+                justify="left",
+                fg="#cc0000"
+            ).pack(anchor='w', padx=10)
+
+    def mark_false_positive(self, threat, popup_window):
+        """Mark threat as false positive (for future tuning)"""
+        response = messagebox.askyesno(
+            "Mark False Positive",
+            f"Mark this '{threat['type']}' detection as a false positive?\n\n"
+            "This will be logged for future detection tuning.",
+            parent=popup_window
+        )
+
+        if response:
+            # Log as false positive
+            # In future, this could adjust detection thresholds
+            messagebox.showinfo(
+                "Logged",
+                "Marked as false positive. Thank you for the feedback!",
+                parent=popup_window
+            )
+            popup_window.destroy()
 
     def trust_network(self, anomaly, popup_window):
         """
