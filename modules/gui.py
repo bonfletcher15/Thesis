@@ -31,7 +31,7 @@ class WiFiScannerGUI:
         self.threat_detector = ThreatDetector(self.history)
 
         ttk.Label(root, text="Scan interval (seconds):").pack(pady=5)
-        self.interval_var = tk.StringVar(value="10")
+        self.interval_var = tk.StringVar(value="15")
         ttk.Entry(root, textvariable=self.interval_var, width=10).pack()
 
         ttk.Button(root, text="Start", command=self.start_scanning).pack(pady=10)

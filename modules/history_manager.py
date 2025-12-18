@@ -26,7 +26,9 @@ class HistoryManager:
             print(f"Warning: Could not set permissions on data directory: {e}")
 
     def _init_db(self):
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, isolation_level='IMMEDIATE')
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=FULL")
         cursor = conn.cursor()
 
         cursor.execute("""
