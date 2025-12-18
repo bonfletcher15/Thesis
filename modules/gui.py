@@ -26,7 +26,6 @@ class WiFiScannerGUI:
         self.scan_thread = None
         self.stop_window = None
 
-        # Initialize history and threat detection
         self.history = HistoryManager()
         self.threat_detector = ThreatDetector(self.history)
 
@@ -49,13 +48,13 @@ class WiFiScannerGUI:
 
         try:
             interval = int(self.interval_var.get())
-            if interval < 3 or interval > 600:
+            if interval < 15 or interval > 600:
                 raise ValueError("out_of_range")
         except ValueError as e:
             if str(e) == "out_of_range":
                 messagebox.showerror(
                     "Invalid Input",
-                    "Scan interval must be between 3 and 600 seconds."
+                    "Scan interval must be between 15 and 600 seconds."
                 )
             else:
                 messagebox.showerror(
@@ -78,24 +77,17 @@ class WiFiScannerGUI:
                 df = scan_networks()
                 path = self.save_scan(df)
 
-                # Add scan to history database
                 self.history.add_scan(df)
 
-                # Detect anomalies
                 anomalies = detect_anomalies(df)
 
-                # Detect advanced threats
                 threats = self.threat_detector.detect_all_threats(df)
 
-                # Show anomaly popups first
                 if anomalies:
-                    # Show popups sequentially (one per anomaly type) with delay
                     for i, anomaly in enumerate(anomalies):
-                        # Delay each popup by 500ms to prevent overlap
                         delay = i * 500
                         self.root.after(delay, lambda a=anomaly, p=path: self.show_anomaly_popup([a], p))
 
-                # Show threat popups after anomalies (with additional delay)
                 if threats:
                     base_delay = len(anomalies) * 500
                     for i, threat in enumerate(threats):
@@ -113,7 +105,6 @@ class WiFiScannerGUI:
                 print("Scan failed:", e)
                 traceback.print_exc()
 
-
             waited = 0
             while self.scanning and waited < interval:
                 time.sleep(0.1)
@@ -128,13 +119,11 @@ class WiFiScannerGUI:
         path = os.path.join(data_dir, f"{timestamp}.csv")
         df.to_csv(path, index=False)
 
-        # Enhanced terminal output
         from scanner import format_scan_summary
         print("\n" + "="*60)
         print(f"Scan saved: file://{os.path.abspath(path)}")
         print("="*60)
         print(format_scan_summary(df))
-        print(f"\nFull results: file://{os.path.abspath(path)}")
         print("="*60 + "\n")
 
         return path
@@ -159,17 +148,10 @@ class WiFiScannerGUI:
             messagebox.showinfo("Stopped", "Scanning stopped.")
 
     def show_anomaly_popup(self, anomalies, file_path):
-        """
-        Show alert popup for anomaly/anomalies
-
-        Args:
-            anomalies: List containing ONE anomaly dict (for Phase 2)
-            file_path: Path to scan CSV file
-        """
         if not anomalies:
             return
 
-        anomaly = anomalies[0]  # Phase 2: one popup per anomaly type
+        anomaly = anomalies[0]
         anomaly_type = anomaly['type']
 
         win = tk.Toplevel(self.root)
@@ -178,7 +160,6 @@ class WiFiScannerGUI:
         win.resizable(False, False)
         win.attributes("-topmost", True)
 
-        # Severity indicator
         severity = anomaly.get('severity', 'unknown').upper()
         severity_colors = {
             'CRITICAL': '#ff4444',
@@ -188,7 +169,6 @@ class WiFiScannerGUI:
         }
         bg_color = severity_colors.get(severity, '#cccccc')
 
-        # Header frame with severity
         header_frame = tk.Frame(win, bg=bg_color, height=50)
         header_frame.pack(fill='x')
         tk.Label(
@@ -198,7 +178,6 @@ class WiFiScannerGUI:
             font=("Arial", 14, "bold")
         ).pack(pady=10)
 
-        # Details frame
         details_frame = tk.Frame(win)
         details_frame.pack(fill='both', expand=True, padx=20, pady=10)
 
@@ -207,7 +186,6 @@ class WiFiScannerGUI:
 
         info_text = f"Found {count} network(s)\n\n"
 
-        # Device type breakdown
         if details is not None and 'DeviceType' in details.columns:
             device_types = details['DeviceType'].value_counts()
             info_text += "Device Types:\n"
@@ -215,7 +193,6 @@ class WiFiScannerGUI:
                 info_text += f"  • {dtype}: {cnt}\n"
             info_text += "\n"
 
-        # Show first 5 networks
         if details is not None:
             info_text += "Networks:\n"
             for _, row in details.head(5).iterrows():
@@ -233,11 +210,9 @@ class WiFiScannerGUI:
             font=("monospace", 9)
         ).pack(anchor='w')
 
-        # Button frame
         button_frame = tk.Frame(win)
         button_frame.pack(fill='x', padx=20, pady=15)
 
-        # Check if network is already whitelisted
         from scanner import load_whitelist
         whitelist = load_whitelist()
         is_whitelisted = False
@@ -253,9 +228,7 @@ class WiFiScannerGUI:
                 bssid = details['BSSID'].iloc[0].lower()
                 is_whitelisted = bssid in whitelist.get("trusted_weak_encryption", {})
 
-        # Trust/Untrust button
         if is_whitelisted and anomaly_type != "Trusted Network - New Device":
-            # Show Untrust button for already whitelisted networks
             trust_btn = tk.Button(
                 button_frame,
                 text="Untrust This Network",
@@ -265,7 +238,6 @@ class WiFiScannerGUI:
                 font=("Arial", 10, "bold")
             )
         else:
-            # Show Trust button for non-whitelisted networks
             trust_btn = tk.Button(
                 button_frame,
                 text="Trust This Network",
@@ -276,7 +248,6 @@ class WiFiScannerGUI:
             )
         trust_btn.pack(side='left', padx=5)
 
-        # Open file button
         def open_file():
             try:
                 if sys.platform.startswith("linux"):
@@ -294,7 +265,6 @@ class WiFiScannerGUI:
             command=open_file
         ).pack(side='left', padx=5)
 
-        # Close button
         tk.Button(
             button_frame,
             text="Close",
@@ -302,13 +272,6 @@ class WiFiScannerGUI:
         ).pack(side='right', padx=5)
 
     def show_threat_popup(self, threat, file_path):
-        """
-        Show alert popup for advanced threat detection
-
-        Args:
-            threat: Threat dict with type, severity, details, context
-            file_path: Path to scan CSV file
-        """
         threat_type = threat['type']
         severity = threat.get('severity', 'medium').upper()
         context = threat.get('context', {})
@@ -319,7 +282,6 @@ class WiFiScannerGUI:
         win.resizable(True, True)
         win.attributes("-topmost", True)
 
-        # Severity colors
         severity_colors = {
             'CRITICAL': '#ff0000',
             'HIGH': '#ff6600',
@@ -328,7 +290,6 @@ class WiFiScannerGUI:
         }
         bg_color = severity_colors.get(severity, '#cccccc')
 
-        # Header
         header_frame = tk.Frame(win, bg=bg_color, height=60)
         header_frame.pack(fill='x')
         tk.Label(
@@ -346,7 +307,6 @@ class WiFiScannerGUI:
             font=("Arial", 10)
         ).pack()
 
-        # Scrollable details frame
         canvas = tk.Canvas(win)
         scrollbar = ttk.Scrollbar(win, orient="vertical", command=canvas.yview)
         details_frame = ttk.Frame(canvas)
@@ -359,17 +319,14 @@ class WiFiScannerGUI:
         canvas.create_window((0, 0), window=details_frame, anchor="nw")
         canvas.configure(yscrollcommand=scrollbar.set)
 
-        # Build threat details
         self._build_threat_details(details_frame, threat)
 
         canvas.pack(side="left", fill="both", expand=True, padx=10, pady=10)
         scrollbar.pack(side="right", fill="y", pady=10)
 
-        # Button frame
         button_frame = tk.Frame(win)
         button_frame.pack(fill='x', padx=20, pady=15)
 
-        # Mark as False Positive button
         tk.Button(
             button_frame,
             text="Mark False Positive",
@@ -379,7 +336,6 @@ class WiFiScannerGUI:
             font=("Arial", 10)
         ).pack(side='left', padx=5)
 
-        # Open file button
         def open_file():
             try:
                 if sys.platform.startswith("linux"):
@@ -398,7 +354,6 @@ class WiFiScannerGUI:
             font=("Arial", 10)
         ).pack(side='left', padx=5)
 
-        # Close button
         tk.Button(
             button_frame,
             text="Close",
@@ -407,12 +362,10 @@ class WiFiScannerGUI:
         ).pack(side='right', padx=5)
 
     def _build_threat_details(self, parent, threat):
-        """Build detailed threat information display"""
         threat_type = threat['type']
         context = threat.get('context', {})
         details = threat.get('details')
 
-        # Threat description
         descriptions = {
             'Vendor Spoofing': "A network's MAC address vendor doesn't match its SSID, suggesting possible spoofing or rogue AP.",
             'Encryption Downgrade': "A known network has switched to weaker encryption, possibly indicating an attack or misconfiguration.",
@@ -437,7 +390,6 @@ class WiFiScannerGUI:
             justify="left"
         ).pack(anchor='w', padx=10)
 
-        # Context details
         if context:
             tk.Label(
                 parent,
@@ -461,7 +413,6 @@ class WiFiScannerGUI:
                 justify="left"
             ).pack(anchor='w', padx=10)
 
-        # Network details
         if details is not None and not details.empty:
             tk.Label(
                 parent,
@@ -469,7 +420,6 @@ class WiFiScannerGUI:
                 font=("Arial", 11, "bold")
             ).pack(anchor='w', pady=(10, 5))
 
-            # Show network details in a formatted way
             for _, row in details.head(10).iterrows():
                 network_text = f"SSID: {row.get('SSID', 'Unknown')}\n"
                 network_text += f"BSSID: {row.get('BSSID', 'Unknown')}\n"
@@ -498,7 +448,6 @@ class WiFiScannerGUI:
                     fg="gray"
                 ).pack(anchor='w', padx=10, pady=5)
 
-        # Remediation suggestions
         remediations = {
             'Vendor Spoofing': "• Verify this is a legitimate network\n• Check physical device to confirm vendor\n• Avoid connecting if unrecognized",
             'Encryption Downgrade': "• Do NOT connect to this network\n• Contact network administrator\n• Verify router configuration hasn't been compromised",
@@ -523,7 +472,6 @@ class WiFiScannerGUI:
             ).pack(anchor='w', padx=10)
 
     def mark_false_positive(self, threat, popup_window):
-        """Mark threat as false positive (for future tuning)"""
         response = messagebox.askyesno(
             "Mark False Positive",
             f"Mark this '{threat['type']}' detection as a false positive?\n\n"
@@ -532,8 +480,6 @@ class WiFiScannerGUI:
         )
 
         if response:
-            # Log as false positive
-            # In future, this could adjust detection thresholds
             messagebox.showinfo(
                 "Logged",
                 "Marked as false positive. Thank you for the feedback!",
@@ -542,13 +488,6 @@ class WiFiScannerGUI:
             popup_window.destroy()
 
     def trust_network(self, anomaly, popup_window):
-        """
-        Handle "Trust This Network" button click
-
-        Args:
-            anomaly: Anomaly dict with 'type' and 'details'
-            popup_window: Tkinter window to close after trusting
-        """
         anomaly_type = anomaly['type']
         details = anomaly.get('details')
 
@@ -556,7 +495,6 @@ class WiFiScannerGUI:
             messagebox.showerror("Error", "No network details available")
             return
 
-        # Different handling per anomaly type
         if anomaly_type == "Evil Twin":
             self.trust_evil_twin(details, popup_window)
         elif anomaly_type == "Unencrypted Networks":
@@ -567,13 +505,6 @@ class WiFiScannerGUI:
             self.trust_new_bssid(anomaly, popup_window)
 
     def untrust_network(self, anomaly, popup_window):
-        """
-        Handle "Untrust This Network" button click
-
-        Args:
-            anomaly: Anomaly dict with 'type' and 'details'
-            popup_window: Tkinter window to close after untrusting
-        """
         from scanner import load_whitelist, save_whitelist
 
         anomaly_type = anomaly['type']
@@ -586,13 +517,11 @@ class WiFiScannerGUI:
         try:
             whitelist = load_whitelist()
 
-            # Different handling per anomaly type
             if anomaly_type == "Evil Twin":
                 ssid = details['SSID'].iloc[0]
                 confirm_msg = f"Remove network '{ssid}' from whitelist?\n\n"
                 confirm_msg += "Future scans will trigger Evil Twin alerts for this network."
 
-                # Bring window to front before showing dialog
                 popup_window.lift()
                 popup_window.focus_force()
                 response = messagebox.askyesno("Untrust Network", confirm_msg, parent=popup_window)
@@ -639,15 +568,12 @@ class WiFiScannerGUI:
             messagebox.showerror("Error", f"Failed to remove from whitelist: {e}", parent=popup_window)
 
     def trust_evil_twin(self, details_df, popup_window):
-        """Trust an SSID with its current BSSIDs"""
         from scanner import load_whitelist, save_whitelist
 
-        # Get SSID and all BSSIDs for this evil twin
         ssid = details_df['SSID'].iloc[0]
         bssids = details_df['BSSID'].tolist()
         vendors = details_df['Vendor'].tolist()
 
-        # Build confirmation message
         confirm_msg = f"Trust network '{ssid}'?\n\n"
         confirm_msg += "This will whitelist the following BSSIDs:\n"
         for bssid, vendor in zip(bssids, vendors):
@@ -655,7 +581,6 @@ class WiFiScannerGUI:
         confirm_msg += "\nFuture alerts will only trigger if NEW devices join this network.\n\n"
         confirm_msg += "Are you sure?"
 
-        # Bring window to front before showing dialog
         popup_window.lift()
         popup_window.focus_force()
         response = messagebox.askyesno("Trust Network", confirm_msg, parent=popup_window)
@@ -664,10 +589,8 @@ class WiFiScannerGUI:
             return
 
         try:
-            # Load current whitelist
             whitelist = load_whitelist()
 
-            # Add or update trusted network
             whitelist["trusted_networks"][ssid] = {
                 "allowed_bssids": [b.lower() for b in bssids],
                 "added_date": datetime.now().isoformat(),
@@ -675,7 +598,6 @@ class WiFiScannerGUI:
                 "note": f"Trusted Evil Twin with {len(bssids)} BSSIDs"
             }
 
-            # Save whitelist
             save_whitelist(whitelist)
 
             messagebox.showinfo("Success", f"Network '{ssid}' added to whitelist")
@@ -685,10 +607,8 @@ class WiFiScannerGUI:
             messagebox.showerror("Error", f"Failed to save whitelist: {e}")
 
     def trust_open_network(self, details_df, popup_window):
-        """Trust an unencrypted network (per-BSSID)"""
         from scanner import load_whitelist, save_whitelist
 
-        # For simplicity, trust the first network (user can call multiple times for multiple networks)
         row = details_df.iloc[0]
         ssid = row['SSID']
         bssid = row['BSSID'].lower()
@@ -698,7 +618,6 @@ class WiFiScannerGUI:
         confirm_msg += "All traffic on this network can be intercepted.\n\n"
         confirm_msg += "Trust this network anyway?"
 
-        # Bring window to front before showing dialog
         popup_window.lift()
         popup_window.focus_force()
         response = messagebox.askyesno("Trust Unencrypted Network", confirm_msg, parent=popup_window)
@@ -725,7 +644,6 @@ class WiFiScannerGUI:
             messagebox.showerror("Error", f"Failed to save whitelist: {e}")
 
     def trust_weak_encryption(self, details_df, popup_window):
-        """Trust a network with weak encryption (per-BSSID)"""
         from scanner import load_whitelist, save_whitelist
 
         row = details_df.iloc[0]
@@ -738,7 +656,6 @@ class WiFiScannerGUI:
         confirm_msg += "This encryption can be cracked. Recommend upgrading to WPA2/WPA3.\n\n"
         confirm_msg += "Trust this network anyway?"
 
-        # Bring window to front before showing dialog
         popup_window.lift()
         popup_window.focus_force()
         response = messagebox.askyesno("Trust Weak Encryption", confirm_msg, parent=popup_window)
@@ -765,7 +682,6 @@ class WiFiScannerGUI:
             messagebox.showerror("Error", f"Failed to save whitelist: {e}")
 
     def trust_new_bssid(self, anomaly, popup_window):
-        """Add new BSSID to existing trusted network"""
         from scanner import load_whitelist, save_whitelist
 
         details_df = anomaly['details']
@@ -785,7 +701,6 @@ class WiFiScannerGUI:
             confirm_msg += f"  ⚠️ {bssid} ({vendor})\n"
         confirm_msg += "\nOnly add if you recognize these devices!\n\nContinue?"
 
-        # Bring window to front before showing dialog
         popup_window.lift()
         popup_window.focus_force()
         response = messagebox.askyesno("Add New Device to Trusted Network", confirm_msg, parent=popup_window)
@@ -796,7 +711,6 @@ class WiFiScannerGUI:
         try:
             whitelist = load_whitelist()
 
-            # Update existing trusted network
             if ssid in whitelist["trusted_networks"]:
                 current_bssids = whitelist["trusted_networks"][ssid].get("allowed_bssids", [])
                 updated_bssids = list(set(current_bssids + new_bssids))
@@ -812,7 +726,6 @@ class WiFiScannerGUI:
             messagebox.showerror("Error", f"Failed to update whitelist: {e}")
 
     def open_whitelist_manager(self):
-        """Open whitelist management window"""
         from scanner import load_whitelist
 
         manager_win = tk.Toplevel(self.root)
@@ -820,10 +733,8 @@ class WiFiScannerGUI:
         manager_win.geometry("600x450")
         manager_win.resizable(True, True)
 
-        # Load current whitelist
         whitelist = load_whitelist()
 
-        # Header
         header = tk.Frame(manager_win, bg='#2c3e50', height=50)
         header.pack(fill='x')
         tk.Label(
@@ -834,26 +745,21 @@ class WiFiScannerGUI:
             font=("Arial", 14, "bold")
         ).pack(pady=10)
 
-        # Create notebook (tabbed interface)
         notebook = ttk.Notebook(manager_win)
         notebook.pack(fill='both', expand=True, padx=10, pady=10)
 
-        # Tab 1: Trusted Networks (Evil Twin exceptions)
         trusted_frame = ttk.Frame(notebook)
         notebook.add(trusted_frame, text=f"Evil Twin Exceptions ({len(whitelist.get('trusted_networks', {}))})")
         self.build_whitelist_tab(trusted_frame, whitelist, "trusted_networks", manager_win)
 
-        # Tab 2: Open Networks
         open_frame = ttk.Frame(notebook)
         notebook.add(open_frame, text=f"Open Networks ({len(whitelist.get('trusted_open_networks', {}))})")
         self.build_whitelist_tab(open_frame, whitelist, "trusted_open_networks", manager_win)
 
-        # Tab 3: Weak Encryption
         weak_frame = ttk.Frame(notebook)
         notebook.add(weak_frame, text=f"Weak Encryption ({len(whitelist.get('trusted_weak_encryption', {}))})")
         self.build_whitelist_tab(weak_frame, whitelist, "trusted_weak_encryption", manager_win)
 
-        # Bottom buttons
         button_frame = tk.Frame(manager_win)
         button_frame.pack(fill='x', padx=10, pady=10)
 
@@ -874,8 +780,6 @@ class WiFiScannerGUI:
         ).pack(side='right', padx=5)
 
     def build_whitelist_tab(self, parent, whitelist, category, manager_win):
-        """Build a whitelist category tab"""
-        # Scrollable frame
         canvas = tk.Canvas(parent)
         scrollbar = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview)
         scrollable_frame = ttk.Frame(canvas)
@@ -888,7 +792,6 @@ class WiFiScannerGUI:
         canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
         canvas.configure(yscrollcommand=scrollbar.set)
 
-        # Display entries
         entries = whitelist.get(category, {})
 
         if not entries:
@@ -906,15 +809,12 @@ class WiFiScannerGUI:
         scrollbar.pack(side="right", fill="y")
 
     def create_whitelist_entry(self, parent, key, data, whitelist, category, manager_win):
-        """Create a single whitelist entry widget"""
         from scanner import save_whitelist
 
         frame = tk.LabelFrame(parent, text=key, padx=10, pady=5, font=("Arial", 10, "bold"))
         frame.pack(fill='x', padx=10, pady=5)
 
-        # Display details based on category
         if category == "trusted_networks":
-            # Evil Twin exception - show SSID and BSSIDs
             bssids = data.get("allowed_bssids", [])
             tk.Label(
                 frame,
@@ -933,7 +833,6 @@ class WiFiScannerGUI:
                     font=("monospace", 8)
                 ).pack(anchor='w')
         else:
-            # Open/Weak - show BSSID and SSID
             ssid = data.get("ssid", "Unknown")
             tk.Label(
                 frame,
@@ -952,7 +851,6 @@ class WiFiScannerGUI:
                     font=("Arial", 8)
                 ).pack(anchor='w', pady=2)
 
-        # Metadata
         added_date = data.get("added_date", "Unknown")
         added_method = data.get("added_method", "Unknown")
         tk.Label(
@@ -970,7 +868,6 @@ class WiFiScannerGUI:
                 fg="gray"
             ).pack(anchor='w', pady=2)
 
-        # Remove button
         def remove_entry():
             category_names = {
                 "trusted_networks": "Evil Twin exception",
@@ -988,7 +885,6 @@ class WiFiScannerGUI:
                     del whitelist[category][key]
                     save_whitelist(whitelist)
                     messagebox.showinfo("Success", f"Removed '{key}' from whitelist", parent=manager_win)
-                    # Refresh the manager window
                     self.refresh_whitelist_manager(manager_win)
                 except Exception as e:
                     messagebox.showerror("Error", f"Failed to remove: {e}", parent=manager_win)
@@ -1003,9 +899,8 @@ class WiFiScannerGUI:
         ).pack(anchor='e', pady=5)
 
     def refresh_whitelist_manager(self, manager_win):
-        """Reload whitelist from file and refresh UI"""
         import scanner
-        scanner._whitelist_cache = None  # Invalidate cache
+        scanner._whitelist_cache = None
 
         manager_win.destroy()
         self.open_whitelist_manager()

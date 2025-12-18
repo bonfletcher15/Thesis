@@ -1,23 +1,11 @@
-"""
-History Manager - Stores and manages WiFi scan history for temporal analysis
-"""
-
 import sqlite3
 import os
 from datetime import datetime, timedelta
 import pandas as pd
 
-
 class HistoryManager:
-    """Manages historical WiFi scan data in SQLite database"""
 
     def __init__(self, db_path=None):
-        """
-        Initialize history manager
-
-        Args:
-            db_path: Path to SQLite database file (default: data/_history.db)
-        """
         if db_path is None:
             db_path = os.path.abspath(
                 os.path.join(os.path.dirname(__file__), "..", "data", "_history.db")
@@ -28,16 +16,13 @@ class HistoryManager:
         self._init_db()
 
     def _ensure_data_dir(self):
-        """Create data directory if it doesn't exist"""
         data_dir = os.path.dirname(self.db_path)
         os.makedirs(data_dir, exist_ok=True)
 
     def _init_db(self):
-        """Create database tables if they don't exist"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
-        # Network history table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS network_history (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -53,7 +38,6 @@ class HistoryManager:
             )
         """)
 
-        # Signal strength baseline table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS signal_baselines (
                 bssid TEXT PRIMARY KEY,
@@ -65,7 +49,6 @@ class HistoryManager:
             )
         """)
 
-        # Encryption history table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS encryption_history (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -75,7 +58,6 @@ class HistoryManager:
             )
         """)
 
-        # Channel history table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS channel_history (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -85,7 +67,6 @@ class HistoryManager:
             )
         """)
 
-        # Threat detection log
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS threat_log (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -100,7 +81,6 @@ class HistoryManager:
             )
         """)
 
-        # Create indices for performance
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_bssid
             ON network_history(bssid)
@@ -118,12 +98,6 @@ class HistoryManager:
         conn.close()
 
     def add_scan(self, df):
-        """
-        Add scan results to history database
-
-        Args:
-            df: pandas DataFrame with scan results
-        """
         if df is None or df.empty:
             return
 
@@ -141,7 +115,6 @@ class HistoryManager:
             vendor = row.get('Vendor', 'Unknown')
             device_type = row.get('DeviceType', 'Unknown')
 
-            # Insert into network_history
             cursor.execute("""
                 INSERT INTO network_history
                 (scan_timestamp, ssid, bssid, encryption, channel, frequency,
@@ -150,23 +123,17 @@ class HistoryManager:
             """, (timestamp, ssid, bssid, encryption, channel, frequency,
                   signal_dbm, vendor, device_type))
 
-            # Track encryption changes
             self._track_encryption_change(cursor, bssid, encryption, timestamp)
 
-            # Track channel changes
             if channel:
                 self._track_channel_change(cursor, bssid, channel, timestamp)
 
         conn.commit()
-
-        # Update signal baselines
         self._update_signal_baselines(conn)
 
         conn.close()
 
     def _track_encryption_change(self, cursor, bssid, encryption, timestamp):
-        """Track encryption type changes for a BSSID"""
-        # Get last known encryption
         cursor.execute("""
             SELECT encryption FROM encryption_history
             WHERE bssid = ?
@@ -177,7 +144,6 @@ class HistoryManager:
         result = cursor.fetchone()
         last_encryption = result[0] if result else None
 
-        # Only log if encryption changed
         if last_encryption != encryption:
             cursor.execute("""
                 INSERT INTO encryption_history (bssid, encryption, timestamp)
@@ -185,8 +151,6 @@ class HistoryManager:
             """, (bssid, encryption, timestamp))
 
     def _track_channel_change(self, cursor, bssid, channel, timestamp):
-        """Track channel changes for a BSSID"""
-        # Get last known channel
         cursor.execute("""
             SELECT channel FROM channel_history
             WHERE bssid = ?
@@ -197,7 +161,6 @@ class HistoryManager:
         result = cursor.fetchone()
         last_channel = result[0] if result else None
 
-        # Only log if channel changed
         if last_channel != channel:
             cursor.execute("""
                 INSERT INTO channel_history (bssid, channel, timestamp)
@@ -205,10 +168,8 @@ class HistoryManager:
             """, (bssid, channel, timestamp))
 
     def _update_signal_baselines(self, conn):
-        """Update signal strength statistics for all BSSIDs"""
         cursor = conn.cursor()
 
-        # Calculate baseline statistics from last 7 days
         cursor.execute("""
             INSERT OR REPLACE INTO signal_baselines
             (bssid, avg_signal_dbm, min_signal_dbm, max_signal_dbm,
@@ -229,15 +190,6 @@ class HistoryManager:
         conn.commit()
 
     def get_signal_baseline(self, bssid):
-        """
-        Get signal strength baseline for a BSSID
-
-        Args:
-            bssid: BSSID to lookup
-
-        Returns:
-            dict with avg, min, max, sample_count or None
-        """
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
@@ -260,16 +212,6 @@ class HistoryManager:
         return None
 
     def get_encryption_history(self, bssid, days=30):
-        """
-        Get encryption change history for a BSSID
-
-        Args:
-            bssid: BSSID to lookup
-            days: Number of days to look back
-
-        Returns:
-            List of (encryption, timestamp) tuples
-        """
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
@@ -288,16 +230,6 @@ class HistoryManager:
         return results
 
     def get_channel_history(self, bssid, days=30):
-        """
-        Get channel change history for a BSSID
-
-        Args:
-            bssid: BSSID to lookup
-            days: Number of days to look back
-
-        Returns:
-            List of (channel, timestamp) tuples
-        """
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
@@ -316,16 +248,6 @@ class HistoryManager:
         return results
 
     def get_network_history(self, bssid, days=30):
-        """
-        Get all historical data for a BSSID
-
-        Args:
-            bssid: BSSID to lookup
-            days: Number of days to look back
-
-        Returns:
-            pandas DataFrame with history
-        """
         conn = sqlite3.connect(self.db_path)
 
         cutoff = (datetime.now() - timedelta(days=days)).isoformat()
@@ -342,16 +264,6 @@ class HistoryManager:
         return df
 
     def get_ssid_bssid_history(self, ssid, days=7):
-        """
-        Get all BSSIDs ever associated with an SSID
-
-        Args:
-            ssid: SSID to lookup
-            days: Number of days to look back
-
-        Returns:
-            List of unique BSSIDs
-        """
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
@@ -369,22 +281,11 @@ class HistoryManager:
         return results
 
     def log_threat(self, threat_type, severity, ssid, bssid, details):
-        """
-        Log a detected threat
-
-        Args:
-            threat_type: Type of threat detected
-            severity: Severity level (critical, high, medium, low)
-            ssid: SSID involved
-            bssid: BSSID involved
-            details: Additional details (string or dict)
-        """
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
         timestamp = datetime.now().isoformat()
 
-        # Convert details to string if it's a dict
         if isinstance(details, dict):
             details = str(details)
 
@@ -398,15 +299,6 @@ class HistoryManager:
         conn.close()
 
     def get_threat_history(self, days=30):
-        """
-        Get recent threat detections
-
-        Args:
-            days: Number of days to look back
-
-        Returns:
-            pandas DataFrame with threat history
-        """
         conn = sqlite3.connect(self.db_path)
 
         cutoff = (datetime.now() - timedelta(days=days)).isoformat()
@@ -423,30 +315,21 @@ class HistoryManager:
         return df
 
     def cleanup_old_data(self, days=90):
-        """
-        Remove scan history older than specified days
-
-        Args:
-            days: Keep data newer than this many days
-        """
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
         cutoff = (datetime.now() - timedelta(days=days)).isoformat()
 
-        # Delete old network history
         cursor.execute("""
             DELETE FROM network_history
             WHERE scan_timestamp < ?
         """, (cutoff,))
 
-        # Delete old encryption history
         cursor.execute("""
             DELETE FROM encryption_history
             WHERE timestamp < ?
         """, (cutoff,))
 
-        # Delete old channel history
         cursor.execute("""
             DELETE FROM channel_history
             WHERE timestamp < ?

@@ -85,12 +85,6 @@ def rssi_to_quality(rssi_dbm):
     return max(0, min(100, int(q)))
 
 def load_whitelist():
-    """
-    Load whitelist configuration with caching
-
-    Returns:
-        dict: Whitelist data structure
-    """
     global _whitelist_cache
 
     if _whitelist_cache is not None:
@@ -100,7 +94,6 @@ def load_whitelist():
         os.path.join(os.path.dirname(__file__), "..", "config", "whitelist.json")
     )
 
-    # Default structure if file doesn't exist
     default = {
         "trusted_networks": {},
         "trusted_open_networks": {},
@@ -117,14 +110,12 @@ def load_whitelist():
         with open(whitelist_path, 'r') as f:
             data = json.load(f)
 
-            # Filter out comment/example entries (keys starting with _)
             _whitelist_cache = {
                 "trusted_networks": {k: v for k, v in data.get("trusted_networks", {}).items() if not k.startswith("_")},
                 "trusted_open_networks": {k: v for k, v in data.get("trusted_open_networks", {}).items() if not k.startswith("_")},
                 "trusted_weak_encryption": {k: v for k, v in data.get("trusted_weak_encryption", {}).items() if not k.startswith("_")}
             }
 
-            # Normalize BSSIDs to lowercase
             for network_data in _whitelist_cache["trusted_networks"].values():
                 if "allowed_bssids" in network_data:
                     network_data["allowed_bssids"] = [b.lower() for b in network_data["allowed_bssids"]]
@@ -138,12 +129,6 @@ def load_whitelist():
         return default
 
 def save_whitelist(whitelist_data):
-    """
-    Save whitelist configuration to file
-
-    Args:
-        whitelist_data: dict containing whitelist structure
-    """
     global _whitelist_cache
 
     whitelist_path = os.path.abspath(
@@ -153,7 +138,6 @@ def save_whitelist(whitelist_data):
     try:
         os.makedirs(os.path.dirname(whitelist_path), exist_ok=True)
 
-        # Add metadata
         output_data = {
             "_comment": "Scannix Whitelist Configuration - Auto-managed via GUI or manual editing",
             "_instructions": "Restart Scannix after manual edits to reload configuration",
@@ -163,7 +147,6 @@ def save_whitelist(whitelist_data):
         with open(whitelist_path, 'w') as f:
             json.dump(output_data, f, indent=2)
 
-        # Invalidate cache so next load reads from file
         _whitelist_cache = None
 
     except Exception as e:
@@ -213,16 +196,9 @@ def estimate_distance_meters(rssi_dbm, freq_mhz, rssi_at_1m=-40.0, path_loss_exp
     return max(0.5, min(int(round(d_m)), 10000))
 
 def detect_device_type(ssid, vendor, bssid):
-    """
-    Detect if device is a router/AP or other hotspot type
-
-    Returns:
-        str: "Router", "Mobile Hotspot", "Portable Hotspot", or "Unknown"
-    """
     ssid_lower = ssid.lower() if ssid else ""
     vendor_lower = vendor.lower() if vendor and vendor != "Unknown" else ""
 
-    # Router indicators
     router_vendors = [
         "tp-link", "d-link", "cisco", "netgear", "asus", "linksys",
         "ubiquiti", "mikrotik", "huawei", "zte", "tenda", "tplink"
@@ -232,17 +208,14 @@ def detect_device_type(ssid, vendor, bssid):
         "movistar", "vodafone", "telekom"
     ]
 
-    # Check vendor
     for rv in router_vendors:
         if rv in vendor_lower:
             return "Router"
 
-    # Check SSID patterns
     for pattern in router_patterns:
         if pattern in ssid_lower:
             return "Router"
 
-    # Mobile hotspot indicators
     mobile_patterns = ["iphone", "android", "galaxy", "pixel", "oneplus", "xiaomi"]
     mobile_vendors = ["apple", "samsung", "google", "xiaomi", "oppo", "vivo"]
 
@@ -254,15 +227,12 @@ def detect_device_type(ssid, vendor, bssid):
         if mv in vendor_lower:
             return "Mobile Hotspot"
 
-    # Portable router/gateway (4G dongles, travel routers)
     if "4g-gateway" in ssid_lower or "portable" in ssid_lower or "mifi" in ssid_lower:
         return "Portable Hotspot"
 
-    # Check for locally administered MAC (bit 1 of first octet)
-    # This often indicates virtual/hotspot interfaces
     try:
         first_octet = int(bssid.split(":")[0], 16)
-        if first_octet & 0x02:  # Bit 1 set = locally administered
+        if first_octet & 0x02:
             return "Mobile Hotspot"
     except:
         pass
@@ -270,25 +240,14 @@ def detect_device_type(ssid, vendor, bssid):
     return "Unknown"
 
 def detect_anomalies(df):
-    """
-    Detect network anomalies with whitelist filtering
-
-    Returns:
-        List of dicts with keys: 'type', 'details', 'severity'
-    """
     anomalies = []
     whitelist = load_whitelist()
 
-    # === 1. Evil Twin Detection with Whitelist ===
     df_visible = df[df["SSID"] != "Hidden SSID"]
-
-    # Find SSIDs with multiple BSSIDs
     duplicate_ssids = df_visible[df_visible.duplicated("SSID", keep=False)]
 
     if not duplicate_ssids.empty:
-        # Check each SSID against whitelist
         trusted_networks = whitelist.get("trusted_networks", {})
-
         suspicious_networks = []
 
         for ssid in duplicate_ssids['SSID'].unique():
@@ -296,14 +255,11 @@ def detect_anomalies(df):
             current_bssids = set(ssid_df['BSSID'].str.lower())
 
             if ssid in trusted_networks:
-                # Check if any NEW BSSIDs appeared
                 allowed_bssids = set(trusted_networks[ssid].get('allowed_bssids', []))
                 new_bssids = current_bssids - allowed_bssids
 
                 if new_bssids:
-                    # NEW BSSID detected in trusted network!
                     new_bssid_data = ssid_df[ssid_df['BSSID'].str.lower().isin(new_bssids)]
-
                     anomalies.append({
                         "type": "Trusted Network - New Device",
                         "details": new_bssid_data[['SSID', 'BSSID', 'Encryption', 'Vendor', 'DeviceType', 'SignalQuality%']],
@@ -314,7 +270,6 @@ def detect_anomalies(df):
                         }
                     })
             else:
-                # Not in whitelist - regular Evil Twin alert
                 suspicious_networks.append(ssid_df)
 
         if suspicious_networks:
@@ -325,14 +280,11 @@ def detect_anomalies(df):
                 "severity": "critical"
             })
 
-    # === 2. Unencrypted Networks with Whitelist ===
     open_nets = df[df["Encryption"].str.upper() == "OPEN"]
 
     if not open_nets.empty:
         trusted_open = whitelist.get("trusted_open_networks", {})
         trusted_open_bssids = set(trusted_open.keys())
-
-        # Filter out whitelisted open networks
         untrusted_open = open_nets[~open_nets["BSSID"].str.lower().isin(trusted_open_bssids)]
 
         if not untrusted_open.empty:
@@ -342,14 +294,11 @@ def detect_anomalies(df):
                 "severity": "high"
             })
 
-    # === 3. Weak Encryption with Whitelist ===
     weak = df[df["Encryption"].str.contains("WEP|WPA$", case=False, regex=True, na=False)]
 
     if not weak.empty:
         trusted_weak = whitelist.get("trusted_weak_encryption", {})
         trusted_weak_bssids = set(trusted_weak.keys())
-
-        # Filter out whitelisted weak encryption networks
         untrusted_weak = weak[~weak["BSSID"].str.lower().isin(trusted_weak_bssids)]
 
         if not untrusted_weak.empty:
@@ -406,7 +355,6 @@ def scan_networks():
     return pd.DataFrame(networks)
 
 def format_scan_summary(df):
-    """Format a concise scan summary for terminal display"""
     if df.empty:
         return "No networks detected"
 
@@ -427,7 +375,6 @@ Encryption: {encryption_counts.get('WPA2', 0)} WPA2, {encryption_counts.get('WPA
 Top Networks by Signal:
 """
 
-    # Show top 5 strongest networks
     top_df = df.nlargest(min(5, len(df)), 'SignalQuality%')[['SSID', 'BSSID', 'SignalQuality%', 'Encryption', 'Channel', 'Vendor']]
 
     for _, row in top_df.iterrows():
